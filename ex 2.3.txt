@@ -1,0 +1,112 @@
+/**
+* @mainpage ZumoBot Project
+* @brief    You can make your own ZumoBot with various sensors.
+* @details  <br><br>
+    <p>
+    <B>General</B><br>
+    You will use Pololu Zumo Shields for your robot project with CY8CKIT-059(PSoC 5LP) from Cypress semiconductor.This 
+    library has basic methods of various sensors and communications so that you can make what you want with them. <br> 
+    <br><br>
+    </p>
+    
+    <p>
+    <B>Sensors</B><br>
+    &nbsp;Included: <br>
+        &nbsp;&nbsp;&nbsp;&nbsp;LSM303D: Accelerometer & Magnetometer<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;L3GD20H: Gyroscope<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;Reflectance sensor<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;Motors
+    &nbsp;Wii nunchuck<br>
+    &nbsp;TSOP-2236: IR Receiver<br>
+    &nbsp;HC-SR04: Ultrasonic sensor<br>
+    &nbsp;APDS-9301: Ambient light sensor<br>
+    &nbsp;IR LED <br><br><br>
+    </p>
+    
+    <p>
+    <B>Communication</B><br>
+    I2C, UART, Serial<br>
+    </p>
+*/
+
+#include <project.h>
+#include <stdio.h>
+#include "FreeRTOS.h"
+#include "task.h"
+#include "Motor.h"
+#include "Ultra.h"
+#include "Nunchuk.h"
+#include "Reflectance.h"
+#include "Gyro.h"
+#include "Accel_magnet.h"
+#include "LSM303D.h"
+#include "IR.h"
+#include "Beep.h"
+#include "mqtt_sender.h"
+#include <time.h>
+#include <sys/time.h>
+#include "serial1.h"
+#include <unistd.h>
+/**
+ * @file    main.c
+ * @brief   
+ * @details  ** Enable global interrupt since Zumo library uses interrupts. **<br>&nbsp;&nbsp;&nbsp;CyGlobalIntEnable;<br>
+*/
+
+#if 1
+
+void zmain(void)
+{
+    ADC_Battery_Start();
+    
+    int16 adcresult = 0;
+    float volts = 0.0;
+    int light_delay = 0; //no light cycle at beginning, no lights
+    bool light_state_on = false; //light is off at beginning
+    bool button_pressed = false; //button not pressed at beginning
+    
+    
+    while(true){
+        ADC_Battery_StartConvert(); //start sampling
+        if(ADC_Battery_IsEndConversion(ADC_Battery_WAIT_FOR_RESULT)){ //wait for ADC converted value
+            adcresult = ADC_Battery_GetResult16(); //get the ADC value (0-4095)
+            volts = (float)adcresult*6 / 4095; // 4 batteries by 1.5V
+            printf("Battery voltage: %f, ADC: %d\n", volts, adcresult);    
+        }
+    
+        if(volts > 4.0){
+        BatteryLed_Write(0); //makes sure light is off if battery changes during 'on' cycle    
+        vTaskDelay(1000);
+        button_pressed = false; //refreshes the button 
+        }
+        
+        else {
+            if (SW1_Read() == 1 && button_pressed == false){ //button is not pressed and wasn't pressed already
+                
+                if (light_delay == 0){ //if light on or light off goes through a full 500 millisec cycle
+                light_state_on = !light_state_on; //switch from off to on or the other way around 
+                light_delay = 5; // the new state will go through five cycles of 100 millisecs
+                }
+                
+                else if (light_delay > 0 && light_state_on == false){    
+                BatteryLed_Write(0); //led off for 100
+                light_delay--; //minus one cycle
+                vTaskDelay(100); 
+                }
+                
+                else { //meaning light_delay >0 && light_state_on == true;
+                BatteryLed_Write(1); //led on for 100
+                light_delay--; //one cycle done
+                vTaskDelay(100);
+                }
+            }
+            else { //if button is pressed or was already pressed
+                button_pressed = true; //so it doesn't blink after pressed
+                BatteryLed_Write(0); //makes sure light is off if pressed during 'on' cycle
+                vTaskDelay(1000);
+                              
+            }
+        }
+    }
+ }   
+#endif

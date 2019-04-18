@@ -1,0 +1,33 @@
+#if 1
+void zmain(void)
+{
+    while(true){
+    if(SW1_Read() == 0){
+        motor_start();              // enable motor controller
+        motor_forward(0,0);         // set speed to zero to stop motors
+
+         vTaskDelay(2000);
+    
+        motor_forward(100,4000);     // move forward
+        motor_turn(200,40,550);     // turn right
+        
+        motor_forward(100,2800);     // move forward
+        motor_turn(200,40,800);   // turn right
+        
+        motor_forward(100,3000);     // move forward
+        motor_turn(200,40,700);     //turn right
+        motor_turn(200,120,2300);   //turn last right
+        
+        
+        motor_forward(0,0);         // stop motors
+
+        motor_stop();               // disable motor controller
+
+    }
+    }
+    for(;;)
+    {
+
+    }
+ }   
+#endif

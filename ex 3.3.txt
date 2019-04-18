@@ -1,0 +1,77 @@
+#if 1
+void turn_backward_left(uint8 l_speed, uint8 r_speed, uint32 delay);
+void turn_backward_right(uint8 l_speed, uint8 r_speed, uint32 delay);
+void turn_forward_right(uint8 l_speed, uint8 r_speed, uint32 delay);
+void turn_forward_left(uint8 l_speed, uint8 r_speed, uint32 delay);
+
+void zmain(void)
+{
+    struct accData_ data;
+    motor_start();
+    LSM303D_Start();
+    
+    while(true){ 
+        
+        int rb = rand()%20; //frm 0 to 19
+        int rf = rand()%300 + 1; //from 0 to 300
+        
+        LSM303D_Read_Acc(&data);
+        printf("%8d %8d %8d\n",data.accX, data.accY, data.accZ);
+        
+            if (data.accX < -5000){ //upon impact turns back and a random direction
+            motor_backward(100, 1000);
+            
+                if(rb%2 == 0){ // if rb number is even, it turns left
+                     turn_backward_left(100, 100, 500);
+                }
+                else {
+                    turn_backward_right(100, 100, 500);
+                }
+            }    
+            else {
+                motor_forward(200, 10);
+                if (rf == 0){ // 1 in 300
+                    turn_forward_left(100, 100, 500);
+                }
+                else if (rf == 1) { //1 in 300
+                    turn_forward_right(100, 100, 500);
+                }
+            }
+            
+            
+    } 
+ }
+void turn_backward_left(uint8 l_speed, uint8 r_speed, uint32 delay)
+{
+    MotorDirLeft_Write(0); //forward
+    MotorDirRight_Write(1); //backward
+    PWM_WriteCompare1(l_speed); 
+    PWM_WriteCompare2(r_speed); 
+    vTaskDelay(delay);
+}
+void turn_backward_right(uint8 l_speed, uint8 r_speed, uint32 delay)
+{
+    MotorDirLeft_Write(1); //backward
+    MotorDirRight_Write(0); //forward
+    PWM_WriteCompare1(l_speed); 
+    PWM_WriteCompare2(r_speed); 
+    vTaskDelay(delay);
+}
+void turn_forward_left(uint8 l_speed, uint8 r_speed, uint32 delay)
+{
+    MotorDirLeft_Write(1); //backward
+    MotorDirRight_Write(0); //forward
+    PWM_WriteCompare1(l_speed); 
+    PWM_WriteCompare2(r_speed); 
+    vTaskDelay(delay);
+}
+void turn_forward_right(uint8 l_speed, uint8 r_speed, uint32 delay)
+{
+    MotorDirLeft_Write(0); //forward
+    MotorDirRight_Write(1); //backward
+    PWM_WriteCompare1(l_speed); 
+    PWM_WriteCompare2(r_speed); 
+    vTaskDelay(delay);
+}
+
+#endif

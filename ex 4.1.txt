@@ -1,0 +1,50 @@
+#if 1
+// Sensors require batteries!
+void zmain(void)
+{
+    struct sensors_ dig;
+    int i = 0;
+    
+    IR_Start();
+    motor_start();
+    reflectance_start();
+    reflectance_set_threshold(13000, 13000, 13000, 13000, 13000, 13000); // set center sensor threshold to 11000 and others to 9000. range 0-24000. On white: 3500-4500, black: 23000 and up
+    
+    
+    while(true) {    
+        if(SW1_Read()==0) {  //button pressed. Goes into new loop
+            
+            reflectance_digital(&dig);
+        
+            while(dig.l3 == 0 && dig.r3 == 0) { 
+                motor_forward(100, 1);
+                reflectance_digital(&dig);
+            }
+            
+            motor_forward(0,0);
+            IR_flush();
+            IR_wait();
+            motor_forward (100, 100);
+                 
+                while(true){
+                    motor_forward(100,1);
+                    reflectance_digital(&dig); 
+                            
+                        if (i == 3) { // if passes the lines, goes into a stop loop
+                            while (true) {
+                                    motor_forward(0,0);
+                            }  
+                        }    
+                                    
+                        if (dig.l3 == 1 && dig.r3 == 1 && i < 3){ //if detects black, counts the lines
+                            motor_forward(100, 90);
+                            i++;
+                        }    
+                        
+                }
+                
+        }
+    }
+                                
+}
+#endif

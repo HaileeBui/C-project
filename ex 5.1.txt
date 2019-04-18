@@ -1,0 +1,33 @@
+#if 1
+
+void zmain(void)
+{
+    int hour = 0 ,min = 0, second = 0;
+    RTC_Start(); // start real time clock
+    
+    RTC_TIME_DATE now;
+       
+    printf("Enter current time: ");
+    scanf("%d:%d:%d", &hour, &min, &second);
+    now.Hour = hour;
+    now.Min = min;
+    now.Sec = second;
+    RTC_WriteTime(&now);
+    
+    while(true){
+        if(SW1_Read() == 0){
+            // read the current time
+            RTC_DisableInt(); /* Disable Interrupt of RTC Component */
+            now = *RTC_ReadTime(); /* copy the current time to a local variable */
+            RTC_EnableInt(); /* Enable Interrupt of RTC Component */
+                                   
+            // print the current time
+            print_mqtt("Zumo040/time","%2d:%02d:%2d", now.Hour, now.Min, now.Sec);
+            while(SW1_Read() == 0) vTaskDelay(50);
+        }
+        vTaskDelay(50);
+    }
+    
+ 
+}
+#endif

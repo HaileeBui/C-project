@@ -1,0 +1,45 @@
+#if 1
+
+void zmain(void)
+{
+    
+    int age, time;
+    
+    TickType_t start;
+    TickType_t end;
+    
+    while(true){
+       
+    printf("\nEnter your age: ");
+    start = xTaskGetTickCount();
+
+    scanf("%d", &age);
+    end = xTaskGetTickCount();
+    
+    time = end - start;
+   
+    if(age <= 21 && time < 3000){
+        printf("Super fast dude!");
+    }else if (age <= 21 && time >= 3000 && time <= 5000){
+        printf("So mediocre.");
+    }else if(age <= 21 && time > 5000){
+        printf("My granny is faster than you!");
+    }else if(age >= 22 && age <= 50 && time < 3000){
+        printf("Be quick or be dead");
+    }else if(age >= 22 && age <= 50 && time >= 3000 && time <= 5000){
+        printf("You're so average");
+    }else if(age >= 22 && age <= 50 && time > 5000 ){
+        printf("Have you been smoking something illegal");
+    }else if(age > 50 && time < 3000){
+        printf("Still going strong");
+    }else if(age > 50 && time < 3000 && time <= 5000){ 
+        printf("You are doing ok for your age.");
+    }else{
+        printf("Do they still allow you to drive?");
+    }
+    
+        vTaskDelay(1000);
+    }
+}
+
+#endif
