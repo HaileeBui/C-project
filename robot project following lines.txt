@@ -1,0 +1,206 @@
+#include <project.h>
+#include <stdio.h>
+#include "FreeRTOS.h"
+#include "task.h"
+#include "Motor.h"
+#include "Ultra.h"
+#include "Nunchuk.h"
+#include "Reflectance.h"
+#include "Gyro.h"
+#include "Accel_magnet.h"
+#include "LSM303D.h"
+#include "IR.h"
+#include "Beep.h"
+#include "mqtt_sender.h"
+#include <time.h>
+#include <sys/time.h>
+#include "serial1.h"
+#include <unistd.h>
+
+#if 1
+
+void turn_forward_left(uint8 l_speed, uint8 r_speed, uint32 delay); //tank turn left
+void turn_forward_right(uint8 l_speed, uint8 r_speed, uint32 delay); //tank turn right
+void drive_through_line(bool drive_through_black); //function to drive through white and black lines
+
+void zmain(void)
+{
+    bool direction; //to correct a turn
+    bool drive_through_black; //to drive through lines
+    bool on_line = true; //for "line" and "miss" printing to MQTT
+    int dig_sum = 0;
+    int time = 0;
+    struct sensors_ dig;
+    
+    //to send time data over:
+    TickType_t start; 
+    TickType_t end;
+    TickType_t ready;
+    TickType_t miss;
+    TickType_t line;
+    
+    IR_Start();
+    motor_start();
+    reflectance_start();
+    reflectance_set_threshold(13000, 13000, 13000, 13000, 13000, 13000);
+    
+    IR_flush();
+    IR_wait();
+                
+    drive_through_black = false;
+    drive_through_line(drive_through_black); //drives through white until black line
+    motor_forward(0,0);
+    
+    ready = xTaskGetTickCount(); //get time when zumo is waiting for signal
+    print_mqtt("Zumo030/ready", "line");
+    
+    IR_flush();
+    IR_wait();
+        
+    start = xTaskGetTickCount(); //get time when zumo starts following line
+    print_mqtt("Zumo030/start","%d%", start);
+    
+    drive_through_black = true;     
+    drive_through_line(drive_through_black);// drives through the black line until white
+    motor_forward(255, 10);
+            
+    while (true) 
+    {
+        reflectance_digital(&dig);
+        dig_sum = dig.l3 + dig.l2 + dig.l1 + dig.r1 + dig.r2 + dig.r3;
+                                    
+        if (dig_sum == 6) //if zumo is on a black line
+        {
+            drive_through_black = true;
+            drive_through_line(drive_through_black);//drive through black
+            drive_through_black = false;
+            drive_through_line(drive_through_black);//drive through white until black again
+            
+            end = xTaskGetTickCount(); //to get the end time
+            time = end - ready;
+            print_mqtt("Zumo030/stop", "%d", end);
+            print_mqtt("Zumo030/time", "%d", time);
+            
+            while(true) //stops
+            {
+                motor_forward(0,0);
+            }
+        }
+        
+        else if(dig.l1 == 1 && dig.r1 == 1) //if center sensors are on black, goes forward
+        {
+            if(on_line == false)//prints to MQTT when zumo goes back on the line
+            {
+                motor_forward(255,1);
+                line = xTaskGetTickCount();
+                print_mqtt("Zumo030/line", "%d", line);
+                on_line = true;
+            }
+            else {
+                motor_forward(255,1);
+            }                            
+        }
+        
+        else if ((dig.l2 == 1 || dig.l3 == 1 ) && dig.r3 == 0)//right turn
+        {
+            reflectance_digital(&dig);
+            
+            if(dig.l1 == 0 && dig.r1 == 0) //correcting the turn if goes off the line
+            {
+                motor_turn(0, 255, 25);
+                direction = true; //right direction
+                on_line = false;
+                miss = xTaskGetTickCount();
+                print_mqtt("Zumo030/miss", "%d", miss);
+            }
+            else
+            {
+                motor_turn(0, 255, 25);
+                direction = true;
+            }
+        }
+        
+        else if (dig.l3 == 0 && (dig.r2 == 1 || dig.r3 == 1))// left turn
+        { 
+            reflectance_digital(&dig);
+            
+            if(dig.l1 == 0 && dig.r1 == 0)
+            {
+                motor_turn(255,0, 25);
+                direction = false; //left direction
+                on_line = false;
+                miss = xTaskGetTickCount();
+                print_mqtt("Zumo030/miss", "%d", miss);  
+            }
+            else
+            {
+                motor_turn(255,0, 25);
+                direction = false;
+            }
+        }
+        else if (dig_sum == 0) //if zumo is not on the line
+        {
+            miss = xTaskGetTickCount();
+            print_mqtt("Zumo030/miss", "%d", miss);
+            on_line = false;
+            
+            if (direction == true) //if previous direction right, turns left
+            { 
+                turn_forward_left(255, 255, 25);
+            }
+            else //if previous direction left, turns right
+            {
+                turn_forward_right(255, 255, 25); 
+            }
+        }
+        else {
+            motor_forward(255,1);
+        }
+            
+    }                        
+}
+
+void turn_forward_left(uint8 l_speed, uint8 r_speed, uint32 delay)
+{
+    MotorDirLeft_Write(1); //backward direction
+    MotorDirRight_Write(0); //forward direction
+    PWM_WriteCompare1(l_speed); 
+    PWM_WriteCompare2(r_speed); 
+    vTaskDelay(delay);
+}
+void turn_forward_right(uint8 l_speed, uint8 r_speed, uint32 delay)
+{
+    MotorDirLeft_Write(0); //forward direction
+    MotorDirRight_Write(1); //backward direction
+    PWM_WriteCompare1(l_speed); 
+    PWM_WriteCompare2(r_speed); 
+    vTaskDelay(delay);
+}
+void drive_through_line(bool drive_through_black) //function to drive through white and black lines
+{
+    reflectance_start();
+    reflectance_set_threshold(13000, 13000, 13000, 13000, 13000, 13000);
+    struct sensors_ digi;
+    reflectance_digital(&digi);
+    
+    motor_forward(200, 1);
+    
+    if (drive_through_black == false) //drive through white
+    {
+        while(digi.l3 == 0 || digi.r3 == 0)
+        {
+                motor_forward(200, 1);
+                reflectance_digital(&digi);    
+        }
+    }    
+    else if (drive_through_black == true) //drive through black
+    {
+           while(digi.l3 == 1 || digi.r3 == 1)
+            {
+                motor_forward(200, 1);
+                reflectance_digital(&digi);
+            }  
+    }
+}
+    
+#endif

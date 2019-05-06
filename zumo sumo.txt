@@ -1,0 +1,209 @@
+include <project.h>
+#include <stdio.h>
+#include "FreeRTOS.h"
+#include "task.h"
+#include "Motor.h"
+#include "Ultra.h"
+#include "Nunchuk.h"
+#include "Reflectance.h"
+#include "Gyro.h"
+#include "Accel_magnet.h"
+#include "LSM303D.h"
+#include "IR.h"
+#include "Beep.h"
+#include "mqtt_sender.h"
+#include <time.h>
+#include <sys/time.h>
+#include "serial1.h"
+#include <unistd.h>
+#include <math.h>
+
+#if 1
+
+void turn_backward_left(uint8 l_speed, uint8 r_speed, uint32 delay); //backward left tank turn
+void turn_backward_right(uint8 l_speed, uint8 r_speed, uint32 delay); //backward right tank turn
+void turn_forward_left(uint8 l_speed, uint8 r_speed, uint32 delay); //forward left tank turn
+void turn_forward_right(uint8 l_speed, uint8 r_speed, uint32 delay); //forward right tank turn
+
+void zmain(void)
+{
+
+    struct sensors_ dig;
+    struct accData_ data;
+    int time = 0;
+    int dig_sum = 0, dig_sum_left = 0, dig_sum_right = 0; // sum of all sensors, left side sensors, right side sensors
+    
+    //getting time data
+    TickType_t start;
+    TickType_t end;
+    TickType_t ready;
+    TickType_t hit;
+
+    IR_Start();
+    Ultra_Start();
+    LSM303D_Start();
+    motor_start();
+    reflectance_start();
+    reflectance_set_threshold(13000, 13000, 13000, 13000, 13000, 13000);
+    LSM303D_Read_Acc(&data);
+
+    while(true)
+    {    
+
+        if(SW1_Read()==0) //start with a user button
+        {
+            start=xTaskGetTickCount();
+            reflectance_digital(&dig);
+
+            while(dig.l3 == 0 && dig.r3 == 0)  //to go through the black line to start
+            { 
+                motor_forward(100, 1);
+                reflectance_digital(&dig);
+            }
+
+            ready = xTaskGetTickCount(); // get time of ready state
+            print_mqtt("Zumo030/ready", "zumo"); //print "ready" to MQTT
+            motor_forward(0,0);
+
+            IR_flush();
+            IR_wait(); //waiting for IR signal
+
+            motor_forward(255,200);
+            start = xTaskGetTickCount(); //get start time
+            print_mqtt("Zumo030/start","%d", start);
+
+            while(true)
+            {
+                reflectance_digital(&dig);
+                dig_sum = dig.l1 + dig.l2 + dig.l3 + dig.r3 + dig.r1 + dig.r2; //sum of all sensors
+                dig_sum_left = dig.l1 + dig.l2 + dig.l3; //sum of left sensors
+                dig_sum_right = dig.r3 + dig.r1 + dig.r2; //sum of right sensors
+                int rand_delay = rand()%200 + 350; //set delay randomly from 350 to 550 ms for turns
+                int rand_turn = rand()%2; //random number from 0 to 1, used for random turns left and right
+
+                LSM303D_Read_Acc(&data);
+                double x = (double)data.accX; //x axis acc data
+                double y = (double)data.accY; // y axis data
+                double tgt = x / y; //tangent of axes
+                double angle = atan(tgt)* 180 / 3.14; //preliminary angle
+
+                if (x < -24000 || x > 24000 || y < -24000 || y > 24000)//only calculating angles when zumo is hit
+                { 
+                    if (y > 0)
+                    { //when y is more than zero, angle is more than 180 degrees (need to add 270)
+                        hit = xTaskGetTickCount();
+                        print_mqtt("Zumo030/hit", "%d %.f",hit, angle + 270);
+                    }
+                    else
+                    { //otherwise angle is below 180 degrees (need to add 90)
+                        hit = xTaskGetTickCount();
+                        print_mqtt("Zumo030/hit", "%d %.f", hit, fabs(angle + 90)); //absolute value to avoid showing -0
+                    }
+                }     
+
+                motor_forward(255,1);
+
+                if (dig_sum == 0)
+                { // when zumo in circle
+                    motor_forward(255,1);
+                    int d = Ultra_GetDistance();
+
+                    if(15 < d && d < 25)//if distance between zumos is between 15 and 25
+                    {
+                        if(rand_turn == 0) //if the random number is 0, turns left
+                        {    
+                        turn_forward_left(255,255,100);
+                        }    
+                        else //if random number is 1, turns right
+                        {
+                        turn_forward_right(255,255,100);
+                        }
+                    }
+                    else if(d <15) //if another zumo is closer than 15 cm, it goes towards it
+                    {
+                        motor_forward(255,1); 
+                    }
+                    else
+                    {
+                        motor_forward(255,1);
+                        reflectance_digital(&dig);
+                    }
+                }    
+                else if(dig_sum == 6) //if on the black line
+                { 
+                    motor_backward(255,200);
+                    
+                    if(rand_turn == 0) //if the random number is 0, turns left
+                    {    
+                        turn_backward_left(255,255,500);
+                    }    
+                    else //if random number is 1, turns right
+                    {
+                        turn_backward_right(255,255,500);
+                    }  
+                }
+                else if(dig_sum_left >= 1 && dig.r3 == 0) //if zumo is touching the black line on the left side
+                {  
+                    motor_backward(255,250);
+                    turn_backward_right(255,255,rand_delay); //turns backward right with a random delay between 350 to 550 ms
+                }
+                else if(dig_sum_right >= 1 && dig.l3 == 0)//if zumo is touching the black line on the right side
+                {
+                    motor_backward(255,250);
+                    turn_backward_left(255,255,rand_delay); //turns backward left with a random delay
+                }
+
+                if(SW1_Read()==0) //button pressed to stop the zumo
+                {
+                    end = xTaskGetTickCount(); //get end time
+                    time = end - start; //shows total time 
+                    print_mqtt("Zumo030/stop","%d", end); //prints stop time
+                    print_mqtt("Zumo030/time","%d", time); //prints total fight time
+
+                    while(true)
+                    {
+                        motor_backward(0,0);
+                    }
+                }   
+            }
+        }
+    }
+}
+
+void turn_backward_left(uint8 l_speed, uint8 r_speed, uint32 delay)
+{
+    MotorDirLeft_Write(0); //forward direction
+    MotorDirRight_Write(1); //backward direction
+    PWM_WriteCompare1(l_speed); 
+    PWM_WriteCompare2(r_speed); 
+    vTaskDelay(delay);
+}
+
+void turn_backward_right(uint8 l_speed, uint8 r_speed, uint32 delay)
+{
+    MotorDirLeft_Write(1); //backward direction
+    MotorDirRight_Write(0); //forward direction
+    PWM_WriteCompare1(l_speed); 
+    PWM_WriteCompare2(r_speed); 
+    vTaskDelay(delay);
+}
+
+void turn_forward_left(uint8 l_speed, uint8 r_speed, uint32 delay)
+{
+    MotorDirLeft_Write(1); //backward direction
+    MotorDirRight_Write(0); //forward direction
+    PWM_WriteCompare1(l_speed); 
+    PWM_WriteCompare2(r_speed); 
+    vTaskDelay(delay);
+}
+
+void turn_forward_right(uint8 l_speed, uint8 r_speed, uint32 delay)
+{
+    MotorDirLeft_Write(0); //forward direction
+    MotorDirRight_Write(1); //backward direction
+    PWM_WriteCompare1(l_speed); 
+    PWM_WriteCompare2(r_speed); 
+    vTaskDelay(delay);
+}
+
+#endif
